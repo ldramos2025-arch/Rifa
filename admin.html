@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel Admin - Controle da Rifa</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      max-width: 650px;
+      margin: 0 auto;
+    }
+    h1, h2 { color: #38bdf8; }
+    .card {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 8px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      box-sizing: border-box;
+    }
+    input, select {
+      background-color: #0f172a;
+      color: #ffffff;
+    }
+    button {
+      background-color: #0284c7;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+    }
+    button:hover { background-color: #0369a1; }
+    button.btn-spin { background-color: #16a34a; font-size: 18px; }
+    button.btn-spin:hover { background-color: #15803d; }
+    ul { list-style: none; padding: 0; }
+    li {
+      background: #334155;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .badge {
+      background: #38bdf8;
+      color: #0f172a;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+      margin-right: 10px;
+    }
+    .btn-del {
+      background: #ef4444;
+      width: auto;
+      padding: 6px 12px;
+      margin: 0 0 0 5px;
+    }
+    .btn-approve {
+      background: #22c55e;
+      width: auto;
+      padding: 6px 12px;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🛠️ Painel da Rifa - Gestão de Pagamentos</h1>
+
+  <!-- Agendar Sorteio -->
+  <div class="card">
+    <h2>⏰ Agendar Sorteio</h2>
+    <input type="datetime-local" id="drawDateInput">
+    <button onclick="salvarData()">Salvar Data</button>
+  </div>
+
+  <!-- Executar Sorteio -->
+  <div class="card">
+    <h2>🎲 Executar Sorteio</h2>
+    <button class="btn-spin" onclick="girarRoleta()">GIRAR ROLETA AGORA 🚀</button>
+  </div>
+
+  <!-- Pendentes de Pagamento -->
+  <div class="card" style="border: 1px solid #f59e0b;">
+    <h2 style="color: #f59e0b;">⏳ Reservas Pendentes (Aguardando PIX)</h2>
+    <ul id="listaPendentes"></ul>
+  </div>
+
+  <!-- Números Confirmados / Pagos -->
+  <div class="card" style="border: 1px solid #22c55e;">
+    <h2 style="color: #22c55e;">✅ Números Confirmados (Na Roleta)</h2>
+    <ul id="listaPagos"></ul>
+  </div>
+
+<script>
+  const socket = io();
+
+  async function carregarData() {
+    const res = await fetch('/api/draw-date');
+    const data = await res.json();
+    if (data.drawDate) {
+      document.getElementById('drawDateInput').value = data.drawDate;
+    }
+  }
+
+  async function salvarData() {
+    const drawDate = document.getElementById('drawDateInput').value;
+    if (!drawDate) return alert('Selecione uma data e hora!');
+
+    await fetch('/api/draw-date', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ drawDate })
+    });
+
+    alert('Data do sorteio atualizada!');
+  }
+
+  async function carregarParticipantes() {
+    const res = await fetch('/api/participants');
+    const data = await res.json();
+    renderListas(data);
+  }
+
+  function renderListas(lista) {
+    const ulPendentes = document.getElementById('listaPendentes');
+    const ulPagos = document.getElementById('listaPagos');
+
+    ulPendentes.innerHTML = '';
+    ulPagos.innerHTML = '';
+
+    const pendentes = lista.filter(p => p.pago === 0);
+    const pagos = lista.filter(p => p.pago === 1);
+
+    if (pendentes.length === 0) {
+      ulPendentes.innerHTML = '<li style="color:#94a3b8">Nenhuma reserva pendente.</li>';
+    } else {
+      pendentes.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <div>
+            <span class="badge" style="background:#f59e0b; color:#fff;">Nº ${p.numero}</span>
+            <strong>${p.nome}</strong> (${p.telefone})
+          </div>
+          <div>
+            <button class="btn-approve" onclick="aprovarPagamento(${p.id})">Aprovar PIX</button>
+            <button class="btn-del" onclick="removerParticipante(${p.id})">X</button>
+          </div>
+        `;
+        ulPendentes.appendChild(li);
+      });
+    }
+
+    if (pagos.length === 0) {
+      ulPagos.innerHTML = '<li style="color:#94a3b8">Nenhum número pago ainda.</li>';
+    } else {
+      pagos.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <div>
+            <span class="badge" style="background:#22c55e; color:#fff;">Nº ${p.numero}</span>
+            <strong>${p.nome}</strong> (${p.telefone})
+          </div>
+          <button class="btn-del" onclick="removerParticipante(${p.id})">X</button>
+        `;
+        ulPagos.appendChild(li);
+      });
+    }
+  }
+
+  async function aprovarPagamento(id) {
+    if (confirm('Confirma que o PIX foi recebido?')) {
+      await fetch(`/api/participants/${id}/approve`, { method: 'POST' });
+      carregarParticipantes();
+    }
+  }
+
+  async function removerParticipante(id) {
+    if (confirm('Deseja cancelar esta reserva/número?')) {
+      await fetch(`/api/participants/${id}`, { method: 'DELETE' });
+      carregarParticipantes();
+    }
+  }
+
+  function girarRoleta() {
+    socket.emit('start_spin');
+  }
+
+  socket.on('participants_updated', (data) => {
+    renderListas(data);
+  });
+
+  socket.on('spin_error', (msg) => {
+    alert(msg);
+  });
+
+  carregarData();
+  carregarParticipantes();
+</script>
+
+</body>
+</html>

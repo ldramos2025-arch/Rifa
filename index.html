@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sorteio da Roleta Ao Vivo</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .container {
+      text-align: center;
+      max-width: 700px;
+      width: 100%;
+    }
+
+    #dateBanner {
+      background: #1e293b;
+      border: 1px solid #38bdf8;
+      padding: 15px;
+      border-radius: 12px;
+      margin-bottom: 25px;
+    }
+
+    .wheel-container {
+      position: relative;
+      width: 320px;
+      height: 320px;
+      margin: 0 auto 20px auto;
+    }
+
+    .pointer {
+      position: absolute;
+      top: -15px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 15px solid transparent;
+      border-right: 15px solid transparent;
+      border-top: 25px solid #ef4444;
+      z-index: 10;
+    }
+
+    canvas {
+      border-radius: 50%;
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+      transition: transform 5s cubic-bezier(0.15, 0.99, 0.18, 0.99);
+    }
+
+    #winnerBox {
+      margin-top: 15px;
+      font-size: 24px;
+      font-weight: bold;
+      color: #4ade80;
+      min-height: 35px;
+    }
+
+    .card {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 30px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+
+    .grid-numeros {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 6px;
+      margin-top: 15px;
+    }
+
+    .num-btn {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 8px 0;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .num-btn:hover:not(.occupied):not(.pending) {
+      background: #38bdf8;
+      color: #0f172a;
+      transform: scale(1.05);
+    }
+
+    .num-btn.selected {
+      background: #38bdf8 !important;
+      color: #0f172a;
+      box-shadow: 0 0 8px #38bdf8;
+    }
+
+    .num-btn.pending {
+      background: #d97706;
+      color: #ffffff;
+      cursor: not-allowed;
+    }
+
+    .num-btn.occupied {
+      background: #334155;
+      color: #64748b;
+      cursor: not-allowed;
+      text-decoration: line-through;
+    }
+
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .dot { width: 12px; height: 12px; border-radius: 3px; }
+
+    .buy-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 15px;
+      text-align: left;
+    }
+
+    .buy-form input {
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background-color: #0f172a;
+      color: white;
+      font-size: 14px;
+    }
+
+    .buy-form button {
+      background-color: #16a34a;
+      color: white;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .buy-form button:hover {
+      background-color: #15803d;
+    }
+
+    .pix-box {
+      background: #0f172a;
+      border: 1px dashed #f59e0b;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>🏆 Sorteio da Roleta</h1>
+
+  <!-- Banner com Contador Regressivo -->
+  <div id="dateBanner">
+    <h4 style="margin: 0 0 8px 0; color: #94a3b8;">O Sorteio Começa Em:</h4>
+    <div id="countdown" style="font-size: 22px; font-weight: bold; color: #38bdf8; font-family: monospace;">
+      Carregando tempo...
+    </div>
+  </div>
+
+  <!-- Roleta -->
+  <div class="wheel-container">
+    <div class="pointer"></div>
+    <canvas id="wheel" width="320" height="320"></canvas>
+  </div>
+
+  <div id="winnerBox"></div>
+
+  <!-- Quadro de Números -->
+  <div class="card">
+    <h2 style="margin-top:0; color:#38bdf8;">🎟️ Escolha seu Número (01 a 100)</h2>
+
+    <div class="legend">
+      <div class="legend-item"><div class="dot" style="background:#0284c7"></div> Disponível</div>
+      <div class="legend-item"><div class="dot" style="background:#d97706"></div> Aguardando PIX</div>
+      <div class="legend-item"><div class="dot" style="background:#334155"></div> Comprado</div>
+    </div>
+    
+    <div class="grid-numeros" id="gridNumeros"></div>
+
+    <form class="buy-form" id="buyForm" style="display: none;" onsubmit="comprarNumero(event)">
+      <h3 style="margin: 10px 0 0 0; color:#38bdf8;">Reservar Número <span id="numSelecionadoTxt"></span></h3>
+      <input type="text" id="nomeCliente" placeholder="Seu Nome Completo" required>
+      <input type="text" id="telCliente" placeholder="Seu WhatsApp (Ex: 5521999999999)" required>
+      <button type="submit">Reservar Número 🚀</button>
+    </form>
+
+    <div id="pixInstructions" class="pix-box" style="display: none;">
+      <h3 style="color:#f59e0b; margin-top:0;">⚠️ Quase lá! Faça o PIX para confirmar</h3>
+      <p style="margin:5px 0;">Sua reserva do número <strong id="pixNumReserved" style="color:#38bdf8"></strong> foi realizada!</p>
+      <p style="margin:5px 0;">Chave PIX: <strong style="color:#4ade80">SUA-CHAVE-PIX-AQUI</strong></p>
+      <p style="font-size:13px; color:#94a3b8; margin-top:10px;">Assim que o administrador confirmar o pagamento, seu número será ativado na roleta e você receberá uma mensagem no WhatsApp!</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  const socket = io();
+  const canvas = document.getElementById('wheel');
+  const ctx = canvas.getContext('2d');
+  
+  let rawParticipants = [];
+  let currentRotation = 0;
+  let targetDate = null;
+  let countdownInterval = null;
+  let selectedNumber = null;
+
+  function getPagos() {
+    return rawParticipants.filter(p => p.pago === 1);
+  }
+
+  function drawWheel() {
+    const pagos = getPagos();
+    const numSlices = pagos.length;
+
+    ctx.clearRect(0, 0, 320, 320);
+
+    // Borda externa dourada
+    const goldGrad = ctx.createRadialGradient(160, 160, 140, 160, 160, 160);
+    goldGrad.addColorStop(0, '#f59e0b');
+    goldGrad.addColorStop(0.5, '#fef08a');
+    goldGrad.addColorStop(1, '#b45309');
+
+    ctx.beginPath();
+    ctx.arc(160, 160, 160, 0, 2 * Math.PI);
+    ctx.fillStyle = goldGrad;
+    ctx.fill();
+
+    // Fundo interno
+    ctx.beginPath();
+    ctx.arc(160, 160, 150, 0, 2 * Math.PI);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+
+    if (numSlices === 0) {
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Aguardando números pagos...', 160, 165);
+      return;
+    }
+
+    const sliceAngle = (2 * Math.PI) / numSlices;
+
+    for (let i = 0; i < numSlices; i++) {
+      const angle = i * sliceAngle;
+      
+      ctx.beginPath();
+      ctx.fillStyle = (i % 2 === 0) ? '#dc2626' : '#111827';
+      ctx.moveTo(160, 160);
+      ctx.arc(160, 160, 148, angle, angle + sliceAngle);
+      ctx.fill();
+
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#f59e0b';
+      ctx.stroke();
+
+      ctx.save();
+      ctx.translate(160, 160);
+      ctx.rotate(angle + sliceAngle / 2);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(`Nº ${pagos[i].numero}`, 140, 5);
+      ctx.restore();
+    }
+
+    // Anel interno dourado
+    ctx.beginPath();
+    ctx.arc(160, 160, 85, 0, 2 * Math.PI);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Centro Dourado
+    const centerGrad = ctx.createRadialGradient(160, 160, 10, 160, 160, 65);
+    centerGrad.addColorStop(0, '#fef08a');
+    centerGrad.addColorStop(0.5, '#d97706');
+    centerGrad.addColorStop(1, '#78350f');
+
+    ctx.beginPath();
+    ctx.arc(160, 160, 65, 0, 2 * Math.PI);
+    ctx.fillStyle = centerGrad;
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#fef08a';
+    ctx.stroke();
+
+    // Braços cruzados dourados
+    ctx.save();
+    ctx.translate(160, 160);
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+
+    for (let a = 0; a < 4; a++) {
+      ctx.rotate((Math.PI / 2));
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -45);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(0, -45, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = '#fef08a';
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Botão central
+    const pinGrad = ctx.createRadialGradient(158, 158, 2, 160, 160, 16);
+    pinGrad.addColorStop(0, '#ffffff');
+    pinGrad.addColorStop(0.6, '#f59e0b');
+    pinGrad.addColorStop(1, '#b45309');
+
+    ctx.beginPath();
+    ctx.arc(160, 160, 16, 0, 2 * Math.PI);
+    ctx.fillStyle = pinGrad;
+    ctx.fill();
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById('gridNumeros');
+    grid.innerHTML = '';
+
+    const busyMap = {};
+    rawParticipants.forEach(p => {
+      busyMap[p.numero] = p.pago;
+    });
+
+    for (let i = 1; i <= 100; i++) {
+      const numStr = String(i).padStart(2, '0');
+      const status = busyMap[numStr];
+
+      const btn = document.createElement('button');
+      
+      if (status === 1) {
+        btn.className = 'num-btn occupied';
+      } else if (status === 0) {
+        btn.className = 'num-btn pending';
+      } else {
+        btn.className = `num-btn ${selectedNumber === numStr ? 'selected' : ''}`;
+        btn.onclick = () => selecionarNumero(numStr);
+      }
+
+      btn.innerText = numStr;
+      grid.appendChild(btn);
+    }
+  }
+
+  function selecionarNumero(numStr) {
+    selectedNumber = numStr;
+    document.getElementById('numSelecionadoTxt').innerText = `Nº ${numStr}`;
+    document.getElementById('buyForm').style.display = 'flex';
+    document.getElementById('pixInstructions').style.display = 'none';
+    renderGrid();
+  }
+
+  async function comprarNumero(e) {
+    e.preventDefault();
+    if (!selectedNumber) return alert('Selecione um número!');
+
+    const nome = document.getElementById('nomeCliente').value;
+    const telefone = document.getElementById('telCliente').value;
+
+    const res = await fetch('/api/participants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numero: selectedNumber, nome, telefone })
+    });
+
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+    } else {
+      document.getElementById('pixNumReserved').innerText = `Nº ${selectedNumber}`;
+      document.getElementById('buyForm').style.display = 'none';
+      document.getElementById('pixInstructions').style.display = 'block';
+      document.getElementById('nomeCliente').value = '';
+      document.getElementById('telCliente').value = '';
+      selectedNumber = null;
+    }
+  }
+
+  async function loadParticipants() {
+    try {
+      const res = await fetch('/api/participants');
+      rawParticipants = await res.json();
+      drawWheel();
+      renderGrid();
+    } catch (err) {
+      console.error("Erro ao carregar números:", err);
+    }
+  }
+
+  socket.on('participants_updated', (data) => {
+    rawParticipants = data;
+    drawWheel();
+    renderGrid();
+  });
+
+  socket.on('spin_started', ({ vencedorIndex, ganhador }) => {
+    document.getElementById('winnerBox').innerText = 'Girando a roleta... 🎲';
+    
+    const pagos = getPagos();
+    const numSlices = pagos.length;
+    const sliceAngle = 360 / numSlices;
+    
+    const extraSpins = 5 * 360;
+    const winnerAngle = 270 - (vencedorIndex * sliceAngle + sliceAngle / 2);
+    
+    currentRotation += extraSpins + (winnerAngle - (currentRotation % 360));
+    canvas.style.transform = `rotate(${currentRotation}deg)`;
+
+    setTimeout(() => {
+      document.getElementById('winnerBox').innerText = `🎉 Vencedor: Nº ${ganhador.numero} (${ganhador.nome})!`;
+    }, 5000);
+  });
+
+  async function carregarDataSorteio() {
+    try {
+      const res = await fetch('/api/draw-date');
+      const data = await res.json();
+      if (data.drawDate) {
+        targetDate = new Date(data.drawDate).getTime();
+        iniciarContador();
+      }
+    } catch (err) {
+      console.error("Erro ao carregar data:", err);
+    }
+  }
+
+  function iniciarContador() {
+    if (countdownInterval) clearInterval(countdownInterval);
+
+    countdownInterval = setInterval(() => {
+      if (!targetDate) return;
+
+      const agora = new Date().getTime();
+      const diferenca = targetDate - agora;
+
+      if (diferenca <= 0) {
+        clearInterval(countdownInterval);
+        document.getElementById('countdown').innerHTML = "<span style='color: #4ade80;'>É HOJE! AGUARDE O SORTEIO!</span>";
+        return;
+      }
+
+      const dias = Math.floor(diferenca / (1000 * 60 * 60 * 24));
+      const horas = Math.floor((diferenca % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutos = Math.floor((diferenca % (1000 * 60 * 60)) / (1000 * 60));
+      const segundos = Math.floor((diferenca % (1000 * 60)) / 1000);
+
+      const d = dias > 0 ? `${dias}d ` : '';
+      const h = String(horas).padStart(2, '0');
+      const m = String(minutos).padStart(2, '0');
+      const s = String(segundos).padStart(2, '0');
+
+      document.getElementById('countdown').innerText = `${d}${h}h ${m}m ${s}s`;
+    }, 1000);
+  }
+
+  socket.on('draw_date_updated', (novaData) => {
+    targetDate = new Date(novaData).getTime();
+    iniciarContador();
+  });
+
+  loadParticipants();
+  carregarDataSorteio();
+</script>
+
+</body>
+</html>

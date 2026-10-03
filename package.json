@@ -1,0 +1,16 @@
+{
+  "name": "roleta-amigos",
+  "version": "1.0.0",
+  "description": "Sistema de Roleta para Sorteio com Socket.IO, SQLite e WhatsApp",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "sqlite3": "^5.1.7",
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
